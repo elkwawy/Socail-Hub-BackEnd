@@ -6,6 +6,8 @@ import {
   deleteCommunityFromMyCommunities,
   getCommunityById,
   exitCommunity,
+  getMyInvitations,
+  ignoreInvitationById
 } from '../controllers/community.js';
 import { verifyToken } from '../verifyToken.js';
 
@@ -27,8 +29,11 @@ router.delete('/delete-community/:communityId', verifyToken, deleteCommunityFrom
 
 // Exit a community
 router.post('/exit-community/:communityId', verifyToken, exitCommunity);
+router.post('/ignoreCommunityInvitation', verifyToken, ignoreInvitationById);
+
 
 // Get a community by ID
 router.get('/community/:communityId', verifyToken, getCommunityById);
+router.get('/getCommunityRequests', verifyToken, getMyInvitations);
 
 export default router;

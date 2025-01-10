@@ -769,7 +769,7 @@ const isUserBlocked = async (senderId, receiverId) => {
 export const getRandomUsers = async (req, res, next) => {
   const userId = req.user.id; // ID of the current user
   const { page = 1 } = req.query; // Default to page 1
-  const pageSize = 6; // Number of users per page
+  const pageSize = 9; // Number of users per page
 
   try {
     // Fetch current user's data, including nested friends

@@ -4,6 +4,7 @@ import { createNotificationForUser, sendNotificationsToCommunityMembers,createNo
 import Notification from '../models/Notification.js';
 import { addHistory } from '../controllers/historyController.js'; // Import the function to add history entries
 
+import mongoose from 'mongoose';
 
 
 // Function to create a community
@@ -287,5 +288,85 @@ export const exitCommunity = async (req, res) => {
   } catch (error) {
       console.error(error);
       res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+
+
+
+
+
+export const getMyInvitations = async (req, res) => {
+  try {
+    // البحث عن المستخدم الحالي
+    const user = await User.findById(req.user.id)
+      .select('invitations') // اختر فقط الدعوات
+      .populate({
+        path: 'invitations.communityId',
+        select: 'name', // جلب اسم المجتمع فقط
+      })
+      .populate({
+        path: 'invitations.senderId',
+        select: 'name profilePicture', // جلب اسم المرسل وصورته الشخصية
+      });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // إعادة ترتيب البيانات لتشمل المعلومات المطلوبة فقط
+    const myInvitations = user.invitations.map((invitation) => ({
+      communityId: invitation.communityId?._id || null,
+      communityName: invitation.communityId?.name || null,
+      senderId: invitation.senderId?._id || null,
+      senderName: invitation.senderId?.name || null,
+      senderProfilePicture: invitation.senderId?.profilePicture || null,
+      accepted: invitation.accepted,
+      _id: invitation._id,
+    }));
+
+    res.status(200).json({ myInvitations });
+  } catch (error) {
+    console.error('Error fetching my invitations:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+
+
+export const ignoreInvitationById = async (req, res) => {
+  try {
+    const { invitationId } = req.body;
+
+    // تحقق من وجود المستخدم
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      console.log("User not found");
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log("Invitation ID from request:", invitationId);
+    console.log("User Invitations:", user.invitations);
+
+    // البحث عن الدعوة باستخدام invitationId
+    const invitationIndex = user.invitations.findIndex((invitation) => {
+      console.log(`Checking invitation ID: ${invitation._id.toString()} === ${invitationId}`);
+      return invitation._id.toString() === invitationId;
+    });
+
+    if (invitationIndex === -1) {
+      console.log(`No invitation found for invitationId: ${invitationId}`);
+      return res.status(400).json({ message: 'No invitation found for this ID' });
+    }
+
+    // إزالة الدعوة من قائمة دعوات المستخدم
+    user.invitations.splice(invitationIndex, 1);
+    await user.save();
+
+    res.status(200).json({ message: 'Invitation ignored successfully' });
+  } catch (error) {
+    console.error('Error ignoring invitation:', error);
+    res.status(500).json({ message: 'Server Error' });
   }
 };

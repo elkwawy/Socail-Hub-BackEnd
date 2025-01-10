@@ -132,3 +132,10 @@ dist
 =======
 node_modules
 >>>>>>> 7601f36 (Initial commit)
+# Ignore video files
+*.mp4
+*.mkv
+*.avi
+
+# Ignore all files in the uploads folder (if videos are stored there)
+uploads/

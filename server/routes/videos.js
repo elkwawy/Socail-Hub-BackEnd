@@ -27,7 +27,7 @@ router.get("/search", search)
 router.post("/save/:id", verifyToken,saveVideo)
 router.post("/unsave/:id",verifyToken, unsaveVideo)
 router.get("/:id/copyUrl", copyUrl);
-router.post('/upload/video', upload.single('videoFile'), uploadVideo);
+router.post('/upload/video', verifyToken, upload.single('video'), uploadVideo);
 
 
 export default router;

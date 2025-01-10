@@ -1,18 +1,35 @@
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Define storage settings for Multer
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// مسار حفظ الملفات
+const videoUploadPath = path.join(__dirname, './uploads');
+
+if (!fs.existsSync(videoUploadPath)) {
+  fs.mkdirSync(videoUploadPath, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads/'); // Specifies the directory where uploaded files will be stored
-    },
-    filename: function (req, file, cb) {
-        // Use a unique filename for the uploaded file (you may want to add more logic here)
-        cb(null, Date.now() + '-' + file.originalname);
-    }
+  destination: (req, file, cb) => {
+    cb(null, videoUploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
 });
 
-// Create the multer instance with the defined storage settings
-const upload = multer({ storage: storage });
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = ['video/mp4', 'video/mkv', 'video/avi'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only video files are allowed!'), false);
+  }
+};
 
-// Export the upload variable to be used in other files
-export { upload };
+export const upload = multer({ storage, fileFilter });

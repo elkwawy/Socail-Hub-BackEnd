@@ -14,6 +14,21 @@ const getUserByName = async (name) => {
   return await User.findOne({ name });
 };
 
+
+export const addCoins = async (userId, amount) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    user.coins = (user.coins || 0) + amount; // إضافة العملات
+    await user.save();
+  } catch (error) {
+    console.error(`Failed to add coins to user ${userId}:`, error.message);
+    throw error;
+  }
+};
 // Function to deduct coins from the user's balance
 const deductCoins = async (userId, amount) => {
   try {
@@ -151,10 +166,22 @@ export const report = async (req, res, next) => {
         await newReport.save();
 
         if (deduction > 0) {
-          deductCoins(user._id, deduction);
-          createSystemNotificationForUser(
+          // Deduct coins from the reported user
+          await deductCoins(user._id, deduction);
+
+          // Add coins to the reporter's account
+          await addCoins(req.user.id, deduction);
+
+          // Create system notification for the reported user
+          await createSystemNotificationForUser(
             user._id,
             `Your content was flagged as inappropriate. ${deduction} coins were deducted.`
+          );
+
+          // Create system notification for the reporter
+          await createSystemNotificationForUser(
+            req.user.id,
+            `You have received ${deduction} coins for reporting inappropriate content.`
           );
         }
 
@@ -166,7 +193,6 @@ export const report = async (req, res, next) => {
     return res.status(500).json({ success: false, message: 'Error processing report' });
   }
 };
-
 
 
 // Function to get all reports made by the current user

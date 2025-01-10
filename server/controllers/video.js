@@ -462,31 +462,57 @@ export const getVideoDetailsById = async (req, res, next) => {
 
 
 
+
+
+
+// Video upload handler
 export const uploadVideo = async (req, res) => {
   try {
-      const videoFile = req.file;
-      if (!videoFile) {
-          return res.status(400).json({ success: false, message: 'No file uploaded' });
-      }
+    const videoFile = req.file;
 
-      const newVideo = new Video({
-          userId: req.body.userId,
-          title: req.body.title,
-          description: req.body.description,
-          videoUrl: videoFile.path,
-          thumbnailUrl: req.body.thumbnailUrl,
-          tags: req.body.tags,
-      });
+    // Check if video file is uploaded
+    if (!videoFile) {
+      return res.status(400).json({ success: false, message: 'No video file uploaded' });
+    }
 
-      await newVideo.save();
-      await addHistory(req.user.id, `You Uploded Video : ${newVideo.title}" `);
+    // Extract user ID and fields from request body
+    const { userId, title, description, thumbnailUrl, tags } = req.body;
 
-      res.status(200).json({ success: true, message: 'Video uploaded successfully', video: newVideo });
+    // Validate user ID
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Create a new video document
+    const newVideo = new Video({
+      userId, // Owner's userId
+      title,
+      description,
+      videoUrl: videoFile.path, // Path to the uploaded file
+      thumbnailUrl,
+      tags: Array.isArray(tags) ? tags : tags.split(','),
+      videoKey: videoFile.filename, // Use the filename as videoKey
+      owner: userId, // Reference to the owner (user ID)
+      ownerName: user.name, // Fetch owner's name from user model
+      ownerProfilePicture: user.profilePicture, // Fetch owner's profile picture
+    });
+
+    // Save the video to the database
+    await newVideo.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Video uploaded successfully',
+      video: newVideo,
+    });
   } catch (error) {
-      console.error('Error uploading video:', error); // Log the error for debugging
-      res.status(500).json({ success: false, message: 'Error uploading video' });
+    console.error('Error uploading video:', error);
+    res.status(500).json({ success: false, message: 'Error uploading video', error: error.message });
   }
 };
+
+
 
 export const getSavedVideos = async (req, res, next) => {
   try {
