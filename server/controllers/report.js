@@ -66,11 +66,11 @@ const getTimeUntilReset = () => {
 
 export const report = async (req, res, next) => {
   try {
-    const pythonScriptPath = "C:\\Users\\PC\\Desktop\\Social Hub\\Socail-Hub\\CommentToxicity-main\\Main.py";
-    const sexualWordsPath = "C:\\Users\\PC\\Desktop\\Social Hub\\Socail-Hub\\CommentToxicity-main\\Sexual_Words.txt";
-    const violenceWordsPath = "C:\\Users\\PC\\Desktop\\Social Hub\\Socail-Hub\\CommentToxicity-main\\Vaulance_Words.txt";
-    const threatWordsPath = "C:\\Users\\PC\\Desktop\\Social Hub\\Socail-Hub\\CommentToxicity-main\\Threaten_Words.txt";
-
+    const pythonScriptPath = "D:\\Programming\\Work\\Socail-Hub-BackEnd\\CommentToxicity-main\\Main.py";
+    const sexualWordsPath = "D:\\Programming\\Work\\Socail-Hub-BackEnd\\CommentToxicity-main\\Sexual_Words.txt";
+    const violenceWordsPath = "D:\\Programming\\Work\\Socail-Hub-BackEnd\\CommentToxicity-main\\Vaulance_Words.txt";
+    const threatWordsPath = "D:\\Programming\\Work\\Socail-Hub-BackEnd\\CommentToxicity-main\\Threaten_Words.txt";
+    
     const { input_sentence, user_name, message_type } = req.body;
 
     // Fetch the user by name

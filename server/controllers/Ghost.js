@@ -44,8 +44,8 @@ export const toggleGhostMode = async (req, res) => {
         // Generate dynamic ghost name
         const randomNumber = generateRandomNumber();
         user.name = `Mared${randomNumber}`;
-        user.profilePicture = "https://psprices.com/region-br/game/880041/demon-ghost-avatar";
-        user.coverPicture = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRzfWfzhKKh-H2J9x0fXElPK1K-vxeMdBuBNw&s";
+        user.profilePicture = "https://img.freepik.com/premium-vector/ghost_1170280-17.jpg";
+        user.coverPicture = "https://a-static.besthdwallpaper.com/a-ghost-story-wallpaper-3840x800-15914_112.jpg";
   
         user.isGhost = true; // Activate ghost mode
       } else if (action === "dis") {
