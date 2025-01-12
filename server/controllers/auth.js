@@ -262,37 +262,71 @@ export const signup = async (req, res, next) => {
 
 
 
-
 export const googleAuth = async (req, res, next) => {
   try {
-    const user = await User.findOne({ email: req.body.email });
-    if (user) {
-      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
-      res
-        .cookie("access_token", token, {
-          httpOnly: true,
-        })
-        .status(200)
-        .json(user._doc);
-    } else {
-      const newUser = new User({
-        ...req.body,
+    const { email, name, img } = req.body;
+
+    // البحث عن المستخدم
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = new User({
+        name,
+        email,
         fromGoogle: true,
+        profilePicture: img,
       });
-      const savedUser = await newUser.save();
-      const token = jwt.sign({ id: savedUser._id }, process.env.JWT_SECRET);
-      res
-        .cookie("access_token", token, {
-          httpOnly: true,
-        })
-        .status(200)
-        .json(savedUser._doc);
-      await addHistory(req.user.id, `You signed up with Google`);
+      await user.save();
+
+      // إنشاء رصيد جديد
+      await Balance.create({
+        user: user._id,
+        currentCoins: 85,
+      });
     }
+
+    // إنشاء التوكن
+    const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
+
+    const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, {
+      expiresIn: "7d",
+    });
+
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Login successful via Google!",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        profilePicture: user.profilePicture,
+      },
+    });
   } catch (err) {
+    console.error(err);
     next(err);
   }
 };
+
 
 export const sendPasscode = async (req, res, next) => {
   const { email } = req.body;

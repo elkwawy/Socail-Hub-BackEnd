@@ -3,17 +3,18 @@ import User from '../models/User.js';
 import Balance from '../models/Balance.js';
 import Comment from '../models/Comment.js';
 import Message from '../models/Message.js';
+import Post from '../models/Post.js'; // Import the Post model
 import PremiumPlan from '../models/premiumPlanModel.js';
 import { createSystemNotificationForUser } from './notification.js';
 import mongoose from 'mongoose';
 import Report from '../models/Report.js'; // Assuming you have created the Report model
 import stringSimilarity from 'string-similarity';
+import { Types } from 'mongoose';
 
 // Function to get user by name
 const getUserByName = async (name) => {
   return await User.findOne({ name });
 };
-
 
 export const addCoins = async (userId, amount) => {
   try {
@@ -22,7 +23,7 @@ export const addCoins = async (userId, amount) => {
       throw new Error('User not found');
     }
 
-    user.coins = (user.coins || 0) + amount; // إضافة العملات
+    user.coins = (user.coins || 0) + amount; // Adding coins
     await user.save();
   } catch (error) {
     console.error(`Failed to add coins to user ${userId}:`, error.message);
@@ -77,8 +78,6 @@ const getTimeUntilReset = () => {
 };
 
 
-
-
 export const report = async (req, res, next) => {
   try {
     const pythonScriptPath = "D:\\Programming\\Work\\Socail-Hub-BackEnd\\CommentToxicity-main\\Main.py";
@@ -88,22 +87,18 @@ export const report = async (req, res, next) => {
     
     const { input_sentence, user_name, message_type } = req.body;
 
-    // Fetch the user by name
     const user = await getUserByName(user_name);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Prevent user from reporting their own content
     if (req.user.id === user._id.toString()) {
       return res.status(403).json({ success: false, message: 'You cannot report yourself.' });
     }
 
-    // Check messages or comments based on message type
     let isContentFound = false;
 
     if (message_type === 'message') {
-      // Search in user's messages
       const messages = await Message.find({ senderId: user._id });
       const similarMessage = messages.find((message) =>
         stringSimilarity.compareTwoStrings(message.content.trim(), input_sentence.trim()) >= 0.95
@@ -111,12 +106,11 @@ export const report = async (req, res, next) => {
 
       if (similarMessage) {
         isContentFound = true;
-        await Message.deleteOne({ _id: similarMessage._id }); // Optional: Delete the message if needed
+        await Message.deleteOne({ _id: similarMessage._id });
       }
     }
 
     if (message_type === 'comment' && !isContentFound) {
-      // Search in user's posts
       const posts = await Post.find({ userId: user._id });
       const postWithComment = posts.find((post) =>
         stringSimilarity.compareTwoStrings(post.desc.trim(), input_sentence.trim()) >= 0.95
@@ -128,14 +122,12 @@ export const report = async (req, res, next) => {
     }
 
     if (!isContentFound) {
-      // If no content found
       return res.status(400).json({
         success: false,
         message: `No matching message or post was found for this content.`,
       });
     }
 
-    // Execute the Python script for toxicity analysis
     console.log("Executing Python script...");
     exec(
       `python "${pythonScriptPath}" "${sexualWordsPath}" "${violenceWordsPath}" "${threatWordsPath}" "${input_sentence}"`,
@@ -153,7 +145,6 @@ export const report = async (req, res, next) => {
           if (result[1] === 'Violence' || result[1] === 'Threat') deduction += 150;
         });
 
-        // Save the report in the database
         const newReport = new Report({
           user: req.user.id,
           reportedUser: user._id,
@@ -166,23 +157,46 @@ export const report = async (req, res, next) => {
         await newReport.save();
 
         if (deduction > 0) {
-          // Deduct coins from the reported user
           await deductCoins(user._id, deduction);
-
-          // Add coins to the reporter's account
           await addCoins(req.user.id, deduction);
 
-          // Create system notification for the reported user
-          await createSystemNotificationForUser(
-            user._id,
-            `Your content was flagged as inappropriate. ${deduction} coins were deducted.`
-          );
+          await User.findByIdAndUpdate(req.user.id, { $inc: { balance: deduction } });
+          await User.findByIdAndUpdate(user._id, { $inc: { balance: -deduction } });
 
-          // Create system notification for the reporter
+          if (user._id !== 'system') {
+            await createSystemNotificationForUser(
+              new mongoose.Types.ObjectId(user._id),
+              `Your content was flagged as inappropriate. ${deduction} coins were deducted.`
+            );
+          }
+
           await createSystemNotificationForUser(
-            req.user.id,
+            new mongoose.Types.ObjectId(req.user.id),
             `You have received ${deduction} coins for reporting inappropriate content.`
           );
+        }
+
+        if (input_sentence.toLowerCase().includes("airport")) {
+          results.forEach(async (result) => {
+            if (['Sexual', 'Violence', 'Threat'].includes(result[1])) {
+              await deductCoins(user._id, 500);
+              await addCoins(req.user.id, 500);
+              await User.findByIdAndUpdate(req.user.id, { $inc: { balance: 500 } });
+              await User.findByIdAndUpdate(user._id, { $inc: { balance: -500 } });
+
+              if (user._id !== 'system') {
+                await createSystemNotificationForUser(
+                  new mongoose.Types.ObjectId(user._id),
+                  `Your airport-related content was flagged as highly inappropriate. 500 coins were deducted.`
+                );
+              }
+
+              await createSystemNotificationForUser(
+                new mongoose.Types.ObjectId(req.user.id),
+                `You have received 500 coins for reporting highly inappropriate airport-related content.`
+              );
+            }
+          });
         }
 
         return res.status(200).json({ success: true, results, deduction });
@@ -193,6 +207,10 @@ export const report = async (req, res, next) => {
     return res.status(500).json({ success: false, message: 'Error processing report' });
   }
 };
+
+
+
+
 
 
 // Function to get all reports made by the current user

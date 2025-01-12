@@ -71,8 +71,13 @@ export const sendInvitation = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot send invitation to blocked users' });
     }
 
-    // Check if an invitation has already been sent to the user
+    // Check if the user exists
     const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if an invitation has already been sent to the user
     if (user.invitations.some(invitation => invitation.communityId && invitation.communityId.equals(communityId))) {
       return res.status(400).json({ message: 'Invitation already sent to this user' });
     }
@@ -84,7 +89,7 @@ export const sendInvitation = async (req, res) => {
     // Create a notification for the user
     const invitationMessage = `${req.user.name} invited you to join the community "${community.name}"`;
     await createNotificationForUser(req.user.id, userId, invitationMessage);
-    await addHistory(req.user.id, `Send Invitation for Community: "${community.name}"  To :"${user.name}" `);
+    await addHistory(req.user.id, `Send Invitation for Community: "${community.name}"  To :"${user.name}"`);
 
     res.status(200).json({ message: 'Invitation sent successfully' });
   } catch (error) {
@@ -92,6 +97,7 @@ export const sendInvitation = async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 };
+
 
   
 

@@ -79,9 +79,6 @@ export const newNotifications = async (req, res) => {
     try {
         const userId = req.params.userId;
 
-        // Define `toUserId` to fix the error
-        const toUserId = userId; // Assign `userId` to `toUserId`
-
         // Fetch unread notifications
         const unreadNotifications = await Notification.find({ TO: userId, isRead: false })
             .sort({ createdAt: -1 });
@@ -91,10 +88,11 @@ export const newNotifications = async (req, res) => {
             return res.status(200).json([]);
         }
 
-        // Emit the unread notifications to the specific user via Socket.IO
-        const userSocket = global.onlineUsers.get(toUserId); // Using `toUserId` as intended
+        // Emit the unread notifications to all connected users via Socket.io
+        const userSocket = global.onlineUsers.get(userId);
         if (userSocket) {
-            globalIO.to(userSocket).emit("new-notification", unreadNotifications); // Emit the actual notifications
+            globalIO.emit("new-notification", unreadNotifications);
+            console.log(`Notifications emitted to all users:`, unreadNotifications);
         }
 
         // Return unread notifications
@@ -104,6 +102,11 @@ export const newNotifications = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 };
+
+
+
+
+
 
 
 
@@ -131,10 +134,32 @@ export const sendNotificationsToCommunityMembers = async (communityId, newMember
 
         // Insert the notifications into the database
         await Notification.insertMany(notifications);
+
+        // Emit the notifications to all community members (excluding the new member) via Socket.io
+        community.members
+            .filter(memberId => memberId.toString() !== newMemberId.toString())
+            .forEach(memberId => {
+                const userSocket = global.onlineUsers.get(memberId.toString());
+                if (userSocket) {
+                    globalIO.to(userSocket).emit("new-notification", {
+                        message: notificationMessage,
+                        TO: memberId,
+                        FROM: newMemberId,
+                    });
+                    console.log(`Notification emitted to user ${memberId}: ${notificationMessage}`);
+                }
+            });
     } catch (error) {
         console.error('Error sending community member notifications:', error);
     }
 };
+
+
+
+
+
+
+
 
 const getUserFullName = async (userId) => {
     try {
@@ -145,6 +170,8 @@ const getUserFullName = async (userId) => {
         return '';
     }
 };
+
+
 
 export const createNotificationsForSubscribersOrFollowers = async (userId, message) => {
     try {
@@ -165,6 +192,19 @@ export const createNotificationsForSubscribersOrFollowers = async (userId, messa
 
         // Insert the notifications into the database
         await Notification.insertMany(notifications);
+
+        // Emit the notifications to all subscribers or followers via Socket.io
+        subscribersOrFollowers.forEach(subscriberId => {
+            const userSocket = global.onlineUsers.get(subscriberId.toString());
+            if (userSocket) {
+                globalIO.to(userSocket).emit("new-notification", {
+                    message,
+                    TO: subscriberId,
+                    FROM: userId,
+                });
+                console.log(`Notification emitted to subscriber ${subscriberId}: ${message}`);
+            }
+        });
     } catch (error) {
         console.error('Error creating notifications:', error);
     }
@@ -174,12 +214,21 @@ export const getNotificationsByUser = async (req, res) => {
     try {
         const userId = req.params.userId;
         const notifications = await Notification.find({ user: userId }).sort({ createdAt: -1 });
+
+        // Emit the notifications to the specific user via Socket.io
+        const userSocket = global.onlineUsers.get(userId);
+        if (userSocket) {
+            globalIO.to(userSocket).emit('user-notifications', notifications);
+            console.log(`Notifications emitted to user ${userId}:`, notifications);
+        }
+
         res.json(notifications);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
+
 
 export const createNotificationForOwner = async (loggedInUserId, ownerId, message) => {
     try {
@@ -207,15 +256,17 @@ export const createNotificationForUser = async (fromUserId, toUserId, message) =
 
         const newNotification = await Notification.create(notification);
 
-        // بث الإشعار للمستخدم المستهدف
+        // Emit the notification to the targeted user
         const userSocket = global.onlineUsers.get(toUserId);
         if (userSocket) {
             globalIO.to(userSocket).emit("new-notification", newNotification);
+            console.log(`Notification emitted to user ${toUserId}: ${message}`);
         }
     } catch (error) {
         console.error("Error creating notification for user:", error);
     }
 };
+
 export const createSystemNotificationForUser = async (toUserId, message) => {
     try {
         // Create a notification from the system

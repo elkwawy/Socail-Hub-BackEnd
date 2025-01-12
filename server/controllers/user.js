@@ -441,10 +441,19 @@ export const acceptFriendRequest = async (req, res, next) => {
       return res.status(404).json("User or Sender not found.");
     }
 
+    if (!user.friendRequests || !sender.friendRequests) {
+      return res.status(404).json("Friend requests data is missing.");
+    }
+
     // Check if the friend request exists from the sender to the user
-    const friendRequestFromSender = user.friendRequests.find((request) => request.sender.toString() === senderId);
+    const friendRequestFromSender = user.friendRequests.find(
+      (request) => request.sender && request.sender.toString() === senderId
+    );
+
     // Check if the friend request exists from the user to the sender
-    const friendRequestFromUser = sender.friendRequests.find((request) => request.sender.toString() === userId);
+    const friendRequestFromUser = sender.friendRequests.find(
+      (request) => request.sender && request.sender.toString() === userId
+    );
 
     // If no valid friend request exists in either direction, return an error
     if (!friendRequestFromSender && !friendRequestFromUser) {
@@ -452,8 +461,12 @@ export const acceptFriendRequest = async (req, res, next) => {
     }
 
     // Remove friend requests in both directions
-    user.friendRequests = user.friendRequests.filter((request) => request.sender.toString() !== senderId);
-    sender.friendRequests = sender.friendRequests.filter((request) => request.sender.toString() !== userId);
+    user.friendRequests = user.friendRequests.filter(
+      (request) => request.sender && request.sender.toString() !== senderId
+    );
+    sender.friendRequests = sender.friendRequests.filter(
+      (request) => request.sender && request.sender.toString() !== userId
+    );
 
     // Add each other as friends
     user.friends.push({
@@ -482,40 +495,30 @@ export const acceptFriendRequest = async (req, res, next) => {
 };
 
 
-const calculateAndUpdateMutualFriends = async (user, friend) => {
+
+const calculateAndUpdateMutualFriends = async (user, sender) => {
   try {
     // حساب الأصدقاء المشتركين
-    const mutualFriends = user.friends
-      .map((f) => f.friendId.toString())
-      .filter((id) => friend.friends.some((f) => f.friendId.toString() === id))
-      .map((id) => {
-        const mutualFriend = user.friends.find((f) => f.friendId.toString() === id);
-        return {
-          friendId: mutualFriend.friendId,
-          friendName: mutualFriend.friendName,
-          friendProfilePicture: mutualFriend.friendProfilePicture,
-        };
-      });
+    const userFriendsIds = user.friends
+      .filter(friend => friend.friendId)  // التأكد من أن friendId موجود
+      .map(friend => friend.friendId.toString());
 
-    // تحديث قائمة mutualFriends للمستخدمين
-    user.friends.forEach((f) => {
-      if (f.friendId.toString() === friend._id.toString()) {
-        f.mutualFriends = mutualFriends;
-      }
-    });
+    const senderFriendsIds = sender.friends
+      .filter(friend => friend.friendId)  // التأكد من أن friendId موجود
+      .map(friend => friend.friendId.toString());
 
-    friend.friends.forEach((f) => {
-      if (f.friendId.toString() === user._id.toString()) {
-        f.mutualFriends = mutualFriends;
-      }
-    });
+    const mutualFriends = userFriendsIds.filter(id => senderFriendsIds.includes(id));
 
-    console.log(`Mutual friends updated for users ${user._id} and ${friend._id}`);
-  } catch (error) {
-    console.error("Error calculating mutual friends:", error);
-    throw error;
+    // تحديث عدد الأصدقاء المشتركين لكل مستخدم
+    user.mutualFriends = mutualFriends;
+    sender.mutualFriends = mutualFriends;
+
+  } catch (err) {
+    console.error("Error calculating mutual friends:", err);
+    throw err;
   }
 };
+
 
 
 

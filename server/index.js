@@ -35,7 +35,7 @@ console.log("Mongo URI:", process.env.MONGO_URI);
 console.log("Port:", process.env.PORT);
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT ;
 
 // Middleware
 app.use(cookieParser());

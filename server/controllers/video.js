@@ -491,7 +491,7 @@ export const uploadVideo = async (req, res) => {
       description,
       videoUrl: videoFile.path, // Path to the uploaded file
       thumbnailUrl,
-      tags: Array.isArray(tags) ? tags : tags.split(','),
+      tags: tags ? (Array.isArray(tags) ? tags : tags.split(',')) : [],
       videoKey: videoFile.filename, // Use the filename as videoKey
       owner: userId, // Reference to the owner (user ID)
       ownerName: user.name, // Fetch owner's name from user model
