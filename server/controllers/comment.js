@@ -90,6 +90,33 @@ export const addComment = async (req, res, next) => {
 
 
 
+export const isCommentByUser = async (req, res, next) => {
+  const { commentId } = req.params; // Require commentId from request parameters
+  const userId = req.user.id; // Get the current user's ID
+
+  try {
+    // Find the comment by its ID
+        // Find the comment by its ID
+
+    const comment = await Comment.findById(commentId);
+
+    if (!comment) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+
+    // Check if the comment was made by the current user
+    const isByMe = comment.userId.toString() === userId;
+
+    return res.status(200).json({
+      success: true,
+      isByMe,
+    });
+  } catch (err) {
+    console.error("Error checking comment ownership:", err);
+    next(err);
+  }
+};
+
 
 
 

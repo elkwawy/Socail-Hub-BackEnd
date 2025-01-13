@@ -6,7 +6,7 @@ import { verifyToken } from "../verifyToken.js";
 const router = express.Router();
 
 router.post('/', verifyToken, sendMessage);
-router.get('/conversation', verifyToken, getConversation);
+router.get('/conversation/:receiverId', verifyToken, getConversation);
 router.put('/:messageId/mark-as-read', verifyToken, markMessageAsRead);
 router.post('/sendCommunityMessage', verifyToken, sendCommunityMessage);
 router.get('/groupConversations', verifyToken, getGroupConversations);

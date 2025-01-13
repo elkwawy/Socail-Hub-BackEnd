@@ -424,6 +424,7 @@ export const sendFriendRequest = async (req, res, next) => {
 
 
 
+
 export const acceptFriendRequest = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -483,7 +484,9 @@ export const acceptFriendRequest = async (req, res, next) => {
 
     // Update mutual friends
     await calculateAndUpdateMutualFriends(user, sender);
-
+    
+    const notificationMessage = `${sender.name} sent you a friend request.`;
+    await createNotificationForOwner(senderId, userId, notificationMessage);
     // Save changes
     await Promise.all([user.save(), sender.save()]);
 
@@ -769,6 +772,7 @@ const isUserBlocked = async (senderId, receiverId) => {
 
 
 
+
 export const getRandomUsers = async (req, res, next) => {
   const userId = req.user.id; // ID of the current user
   const { page = 1 } = req.query; // Default to page 1
@@ -788,12 +792,10 @@ export const getRandomUsers = async (req, res, next) => {
     // Build exclusion list
     const excludedIds = new Set([...friendIds, userId.toString()]);
 
-
     // Ensure all excluded IDs are valid ObjectIds
     const validExcludedIds = Array.from(excludedIds)
       .filter(id => mongoose.isValidObjectId(id)) // Ensure valid IDs
       .map(id => new mongoose.Types.ObjectId(id)); // Convert to ObjectId
-
 
     // Fetch random users excluding friends and the current user
     const users = await User.aggregate([
@@ -808,8 +810,10 @@ export const getRandomUsers = async (req, res, next) => {
             $in: [
               "$_id",
               currentUser.SubscribersOrFollowers
-                .filter(id => mongoose.isValidObjectId(id))
-                .map(id => new mongoose.Types.ObjectId(id)),
+                ? currentUser.SubscribersOrFollowers
+                  .filter(id => mongoose.isValidObjectId(id))
+                  .map(id => new mongoose.Types.ObjectId(id))
+                : [], // Ensure it's an array
             ],
           },
         },
@@ -823,25 +827,24 @@ export const getRandomUsers = async (req, res, next) => {
           email: 1,
           profilePicture: 1,
           isFollower: 1,
-          SubscribersOrFollowers: 1, // Include temporarily to check for youFollow
           friendRequests: 1, // Include temporarily to check for sendFriendRequest
         },
       },
     ]);
 
-
     // Process each user to determine youFollow and sendFriendRequest
     const processedUsers = users.map(user => ({
       ...user,
-      youFollow: user.SubscribersOrFollowers.includes(userId), // Check if userId is in SubscribersOrFollowers
+      youFollow: currentUser.SubscribersOrFollowers
+        ? currentUser.SubscribersOrFollowers.includes(user._id.toString())
+        : false, // Ensure SubscribersOrFollowers is defined
       sendFriendRequest: user.friendRequests.some(
         request => request.sender.toString() === userId // Check if userId sent a friend request
       ),
     }));
 
     // Remove unnecessary fields from the final response
-    const sanitizedUsers = processedUsers.map(({ SubscribersOrFollowers, friendRequests, ...rest }) => rest);
-
+    const sanitizedUsers = processedUsers.map(({ friendRequests, ...rest }) => rest);
 
     if (!sanitizedUsers.length) {
       return res.status(404).json({ message: "No more users available." });
@@ -853,7 +856,6 @@ export const getRandomUsers = async (req, res, next) => {
     next(err);
   }
 };
-
 
 
 

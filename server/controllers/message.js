@@ -32,7 +32,7 @@ const isUserBlocked = async (senderId, receiverId) => {
 
 
 
-export const sendMessage = (io) => async (req, res, next) => {
+export const sendMessage = async (req, res, next) => {
   upload.single('media')(req, res, async (err) => {
     if (err) {
       console.error(err); // Log the error for debugging
@@ -89,27 +89,6 @@ export const sendMessage = (io) => async (req, res, next) => {
       });
       await message.save();
 
-      // Emit the message to the sender and receiver
-      io.to(senderId).emit('privateMessage', {
-        senderId,
-        receiverId,
-        content,
-        photoUrl,
-        videoUrl,
-        type: 'chat',
-        createdAt: message.createdAt,
-      });
-      
-      io.to(receiverId).emit('privateMessage', {
-        senderId,
-        receiverId,
-        content,
-        photoUrl,
-        videoUrl,
-        type: 'chat',
-        createdAt: message.createdAt,
-      });
-
       // Update the receiver's message inbox
       await User.findByIdAndUpdate(receiverId, {
         $push: { inbox: message._id },
@@ -133,31 +112,49 @@ export const sendMessage = (io) => async (req, res, next) => {
 
 export const getConversation = async (req, res, next) => {
   try {
-    const senderId = req.user.id; // Assuming req.user.id is the sender's ID from JWT
-    const receiverId = req.query.receiverId;
+    const userId = req.user.id; // Assuming req.user.id is the sender's ID from JWT
+    const receiverId = req.params.receiverId; // Receiver ID from route parameters
 
+    if (!receiverId) {
+      return res.status(400).json({ success: false, message: 'ReceiverId is required' });
+    }
+
+    // Fetch all messages between the user and the specified receiver
     const messages = await Message.find({
+      type: 'chat', // Ensure we are only getting chat messages
       $or: [
-        { senderId, receiverId },
-        { senderId: receiverId, receiverId: senderId }
+        { senderId: userId, receiverId: receiverId },
+        { senderId: receiverId, receiverId: userId }
       ]
     }).sort({ timestamp: 1 });
 
-      // Fetch receiver details (name and profile picture)
-      const receiver = await User.findById(receiverId).select('name profilePicture');
+    // Fetch details for each sender
+    const senderIds = messages.map((message) => message.senderId);
+    const senders = await User.find({ _id: { $in: senderIds } }).select('name profilePicture');
 
-      // Process messages to include receiver details
-      const processedMessages = messages.map((message) => ({
-          ...message._doc,
-          receiverName: receiver?.name || "Unknown Receiver",
-          receiverProfilePicture: receiver?.profilePicture || null,
-      }));
+    // Create a mapping of senderId to sender details
+    const senderDetailsMap = senders.reduce((map, sender) => {
+      map[sender._id] = sender;
+      return map;
+    }, {});
 
-      res.json(processedMessages);
+    // Process messages to include sender details
+    const processedMessages = messages.map((message) => ({
+      ...message._doc,
+      senderName: senderDetailsMap[message.senderId]?.name || 'Unknown Sender',
+      senderProfilePicture: senderDetailsMap[message.senderId]?.profilePicture || null,
+    }));
+
+    res.json({
+      success: true,
+      messages: processedMessages,
+    });
   } catch (error) {
-      next(error);
+    next(error);
   }
 };
+
+
 
 
 export const markMessageAsRead = async (req, res, next) => {
@@ -183,14 +180,14 @@ export const markMessageAsRead = async (req, res, next) => {
 
 export const getGroupConversations = async (req, res, next) => {
   try {
-      const { groupId } = req.body; // Assuming groupId is passed in the JSON body
+      const { groupId } = req.query; // Assuming groupId is passed as a query parameter
 
       if (!groupId) {
-          return res.status(400).json({ message: 'groupId is required in the request body' });
+          return res.status(400).json({ message: 'groupId is required in the request query' });
       }
 
       // Fetch all community messages for the specified group
-      const messages = await Message.find({ groupId, type: 'community' }).sort({ timestamp: 1 });
+      const messages = await Message.find({ receiverId: groupId, type: 'community' }).sort({ timestamp: 1 });
 
       // Fetch sender details (name and profile picture) for each message
       const processedMessages = await Promise.all(
@@ -204,7 +201,10 @@ export const getGroupConversations = async (req, res, next) => {
           })
       );
 
-      res.json(processedMessages);
+      res.json({
+          success: true,
+          messages: processedMessages,
+      });
   } catch (error) {
       next(error);
   }
@@ -220,106 +220,66 @@ const getCommunityMembers = async (communityId) => {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const sendCommunityMessage = (io) => async (req, res, next) => {
+export const sendCommunityMessage = async (req, res, next) => {
   upload.single('media')(req, res, async (err) => {
-    if (err) {
-      return next(createError(500, 'File upload failed'));
-    }
-
-    try {
-      const { communityId, content } = req.body;
-      const senderId = req.user.id;
-      let photoUrl = null;
-      let videoUrl = null;
-
-      if (!communityId || !content || !senderId) {
-        return res.status(400).json({ success: false, message: 'CommunityId, content, and senderId are required' });
+      if (err) {
+          return next(createError(500, 'File upload failed'));
       }
 
-      if (req.file) {
-        const fileExtension = path.extname(req.file.filename).toLowerCase();
-        if (fileExtension === '.jpg' || fileExtension === '.jpeg' || fileExtension === '.png') {
-          photoUrl = req.file.path;
-        } else if (fileExtension === '.mp4' || fileExtension === '.mov') {
-          videoUrl = req.file.path;
-        }
+      try {
+          const { communityId, content } = req.body;
+          const senderId = req.user.id;
+          let photoUrl = null;
+          let videoUrl = null;
+
+          if (!communityId || !content || !senderId) {
+              return res.status(400).json({ success: false, message: 'CommunityId, content, and senderId are required' });
+          }
+
+          if (req.file) {
+              const fileExtension = path.extname(req.file.filename).toLowerCase();
+              if (fileExtension === '.jpg' || fileExtension === '.jpeg' || fileExtension === '.png') {
+                  photoUrl = req.file.path;
+              } else if (fileExtension === '.mp4' || fileExtension === '.mov') {
+                  videoUrl = req.file.path;
+              }
+          }
+
+          // Verify the community exists
+          const community = await Community.findById(communityId);
+
+          if (!community) {
+              return res.status(404).json({
+                  success: false,
+                  message: 'Community not found',
+              });
+          }
+
+          // Save the community message with receiverId as communityId
+          const message = new Message({
+              senderId,
+              receiverId: communityId, // Set receiverId to communityId
+              content,
+              photoUrl,
+              videoUrl,
+              type: 'community',
+          });
+          await message.save();
+
+          // Add the message ID to the community's messages array
+          community.messages.push(message._id);
+          await community.save();
+
+          res.status(201).json({
+              success: true,
+              message: 'Community message sent successfully',
+              data: message,
+          });
+      } catch (error) {
+          next(error);
       }
-
-      // Verify the community exists
-      const community = await Community.findById(communityId);
-
-      if (!community) {
-        return res.status(404).json({
-          success: false,
-          message: 'Community not found',
-        });
-      }
-
-      // Save the community message with receiverId as communityId
-      const message = new Message({
-        senderId,
-        receiverId: communityId, // Set receiverId to communityId
-        content,
-        photoUrl,
-        videoUrl,
-        type: 'community',
-      });
-      await message.save();
-
-      // Emit the message to all connected clients
-      io.to(communityId).emit('communityMessage', {
-        senderId,
-        communityId,
-        content,
-        photoUrl,
-        videoUrl,
-        type: 'community',
-        createdAt: message.createdAt,
-      });
-
-      // Add history for the community message
-      await addHistory(senderId, `Sent a message to community ${community.name}`);
-
-      // Notify all community members (example, adjust as needed)
-      const notificationMessage = `${sender.name} posted in ${community.name}: "${content}"`;
-      await createNotificationForUser(senderId, communityId, notificationMessage);
-
-      res.status(201).json({
-        success: true,
-        message: 'Community message sent successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
   });
 };
-
-
-
-
-
-
-
-
-
 
 
 
@@ -333,9 +293,12 @@ export const getUsersWithChatMessages = async (req, res, next) => {
       return res.status(400).json({ message: "User ID is required" });
     }
 
-    // Find messages where the user is either the sender or receiver
+    // Find chat messages where the user is either the sender or receiver
     const userMessages = await Message.find({
-      $or: [{ senderId: userId }, { receiverId: userId }],
+      $and: [
+        { $or: [{ senderId: userId }, { receiverId: userId }] },
+        { type: 'chat' }
+      ],
     })
       .sort({ timestamp: -1 }) // Sort by latest messages first
       .exec();
@@ -359,34 +322,14 @@ export const getUsersWithChatMessages = async (req, res, next) => {
       }
     });
 
-    // Process the map to fetch user or community details
+    // Process the map to fetch user details
     const processedMessages = await Promise.all(
       Array.from(userMap.entries()).map(async ([otherUserId, message]) => {
-        // Try to find the otherUserId in the User model
         const user = await User.findById(otherUserId).select('name profilePicture');
-        if (user) {
-          return {
-            ...message._doc,
-            receiverName: user.name,
-            receiverProfilePicture: user.profilePicture,
-          };
-        }
-
-        // If not found in User model, try the Community model
-        const community = await Community.findById(otherUserId).select('name');
-        if (community) {
-          return {
-            ...message._doc,
-            receiverName: community.name,
-            receiverProfilePicture: null, // Communities don't have profile pictures
-          };
-        }
-
-        // If otherUserId is not found in either model
         return {
           ...message._doc,
-          receiverName: "Unknown Receiver",
-          receiverProfilePicture: null,
+          receiverName: user?.name || "Unknown Receiver",
+          receiverProfilePicture: user?.profilePicture || null,
         };
       })
     );
