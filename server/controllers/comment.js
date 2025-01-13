@@ -313,66 +313,70 @@ export const getReplies = async (req, res, next) => {
 
 
 export const deleteComment = async (req, res, next) => {
+  const commentId = req.params.commentId;
+  const userId = req.user.id;  // Assuming you store user info in req.user
+
   try {
-    const commentId = req.params.commentId; // Match route parameter
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
-      return next(createError(400, "Invalid comment ID format"));
+      return next(createError(400, "Invalid comment ID format."));
     }
 
     // Find the comment by ID
     const comment = await Comment.findById(commentId);
     if (!comment) {
-      return next(createError(404, "Comment not found"));
+      return next(createError(404, "Comment not found."));
     }
 
-    // Determine the related object (video or post) based on objectType
-    const video = comment.objectType === "video" ? await Video.findById(comment.objectId) : null;
-    const post = comment.objectType === "post" ? await Post.findById(comment.objectId) : null;
-
-    // Check if the user is authorized to delete the comment
-    const isOwnerOfObject = video
-      ? String(video.userId) === String(req.user.id) // User owns the video
-      : post
-      ? String(post.userId) === String(req.user.id) // User owns the post
-      : false;
-
-    const isAuthorOfComment = String(comment.userId) === String(req.user.id); // User authored the comment
-
-    if (!isOwnerOfObject && !isAuthorOfComment) {
-      return next(createError(403, "You can only delete your own comment or comments on your video/post."));
+    // Find the object (video or post) associated with the comment
+    let object;
+    let objectType = '';
+    
+    // Check if the comment is associated with a video
+    const video = await Video.findById(comment.objectId);
+    if (video) {
+      object = video;
+      objectType = 'video';
     }
 
-    // Delete the comment
+    // Check if the comment is associated with a post
+    const post = await Post.findById(comment.objectId);
+    if (post) {
+      object = post;
+      objectType = 'post';
+    }
+
+    // If no associated video or post found
+    if (!object) {
+      return next(createError(404, "No associated video or post found for this comment."));
+    }
+
+    // Check if the user trying to delete the comment is the owner of the video or post
+    if (String(object.userId) !== String(userId)) {
+      return next(createError(403, "You do not have permission to delete this comment."));
+    }
+
+    // Remove the comment from the associated object (video or post)
+    if (objectType === 'video') {
+      object.comments = object.comments.filter(c => !c.equals(commentId));
+      await object.save();
+    } else if (objectType === 'post') {
+      object.comments = object.comments.filter(c => !c.equals(commentId));
+      await object.save();
+    }
+
+    // Delete the comment using findByIdAndDelete
     await Comment.findByIdAndDelete(commentId);
 
-    // Remove the comment ID from the related video or post's comment list
-    if (video) {
-      video.comments = video.comments.filter(id => String(id) !== commentId);
-      await video.save();
-    } else if (post) {
-      post.comments = post.comments.filter(id => String(id) !== commentId);
-      await post.save();
-    }
+    return res.status(200).json({
+      success: true,
+      message: "Comment deleted successfully.",
+    });
 
-    // Add a history entry for the user
-    await addHistory(req.user.id, `You deleted a comment: "${comment.desc}"`);
-
-    res.status(200).json({ message: "Comment deleted successfully" });
   } catch (err) {
+    console.error("Error deleting comment:", err);
     next(err);
   }
 };
-
-//for Appeares Comments Under video
- 
-
-
-
-
-
-
-
-
 
 export const getCommentsByObjectId = async (req, res, next) => {
   try {
