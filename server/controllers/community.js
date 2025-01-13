@@ -1,6 +1,5 @@
 import Community from '../models/Community.js';
 import User from '../models/User.js';
-import Invitation from '../models/Invitation.js';
 import { createNotificationForUser, sendNotificationsToCommunityMembers,createNotificationForOwner } from './notification.js';
 import Notification from '../models/Notification.js';
 import { addHistory } from '../controllers/historyController.js'; // Import the function to add history entries
@@ -11,99 +10,87 @@ import mongoose from 'mongoose';
 
 // Function to create a community
 export const createCommunity = async (req, res) => {
-  try {
-    const { name, description = '' } = req.body;  // إضافة الوصف بشكل اختياري
-
-    // Check if the community already exists
-    const existingCommunity = await Community.findOne({ name });
-    if (existingCommunity) {
-      return res.status(400).json({ message: 'Community with this name already exists' });
-    }
-
-    // Create the community
-    const community = await Community.create({ name, description });
-
-    // Ensure the user is not blocked and is eligible to create a community
-    const user = await User.findById(req.user.id);
-    if (!user || user.isBlocked) {
-      return res.status(403).json({ message: 'You are not authorized to create a community' });
-    }
-
-    // Make the user who created the community an admin
-    user.isAdmin = true;
-    user.community = community.id;
-    user.communities.push(community.id); // Add the community to user's communities
-    await user.save();
-
-    // Add the user to the community admins and members
-    community.admins.push(req.user.id);
-    community.members.push(req.user.id);
-    await community.save();
+    try {
+      const { name } = req.body;
+  
+      // Check if the community already exists
+      const existingCommunity = await Community.findOne({ name });
+      if (existingCommunity) {
+        return res.status(400).json({ message: 'Community with this name already exists' });
+      }
+  
+      // Create the community
+      const community = await Community.create({ name });
+  
+      // Make the user who created the community an admin
+      const user = await User.findById(req.user.id);
+      user.isAdmin = true;
+      user.community = community.id;
+      user.communities.push(community.id); // Add the community to user's communities
+      await user.save();
+  
+      // Add the user to the community admins and members
+      community.admins.push(req.user.id);
+      community.members.push(req.user.id);
+      await community.save();
 
     await addHistory(req.user.id, `Created Community: ${name}`);
-    res.status(201).json({ community, message: 'Community created successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server Error' });
-  }
-};
-
+      res.status(201).json({ community, message: 'Community created successfully' });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  };
   
 // Function to send an invitation to a user
 export const sendInvitation = async (req, res) => {
   try {
     const { communityId, userId } = req.body;
 
-    // البحث عن الكوميونيتي
+    // Find the community
     const community = await Community.findById(communityId);
     if (!community) {
       return res.status(404).json({ message: 'Community not found' });
     }
 
-    // التحقق من أن المرسل هو المسؤول عن الكوميونيتي
+    // Check if the sender is an admin of the community
     if (!community.admins.includes(req.user.id)) {
       return res.status(403).json({ message: 'Only admins can send invitations' });
     }
 
-    // التحقق من أن المستخدم ليس عضوًا بالفعل في الكوميونيتي
+    // Check if the user is already a member of the community
     if (community.members.includes(userId)) {
       return res.status(400).json({ message: 'User is already a member of the community' });
     }
 
-    // التحقق من أن المستخدم غير محظور
-    const isReceiverBlocked = await isUserBlocked(req.user.id, userId);
+    // Check if the receiver is blocked by the sender
+    const senderId = req.user.id;
+    const receiverId = userId; // Assuming userId is the receiver's ID
+    const isReceiverBlocked = await isUserBlocked(senderId, receiverId);
+
     if (isReceiverBlocked) {
       return res.status(403).json({ success: false, message: 'Cannot send invitation to blocked users' });
     }
 
-    // التحقق من وجود المستخدم
+    // Check if the user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // إنشاء الدعوة الجديدة
-    const invitation = new Invitation({
-      communityId,
-      senderId: req.user.id,
-      receiverId: userId,
-      senderName: req.user.name,
-      receiverName: user.name,
-    });
+    // Check if an invitation has already been sent to the user
+    if (user.invitations.some(invitation => invitation.communityId && invitation.communityId.equals(communityId))) {
+      return res.status(400).json({ message: 'Invitation already sent to this user' });
+    }
 
-    // تخزين الدعوة في الكوميونيتي
-    community.invitations.push(invitation);
-
-    // تخزين الدعوة في قائمة الدعوات الخاصة بالمستخدم
-    user.invitations.push(invitation);
-
-    // حفظ التحديثات في الكوميونيتي والمستخدم
-    await community.save();
+    // Send the invitation
+    user.invitations.push({ communityId, senderId: req.user.id, accepted: false }); // Include communityId in the invitation
     await user.save();
 
-    // إرسال الإشعار للمستقبل
+    // Create a notification for the user
     const invitationMessage = `${req.user.name} invited you to join the community "${community.name}"`;
     await createNotificationForUser(req.user.id, userId, invitationMessage);
+    await addHistory(req.user.id, `Send Invitation for Community: "${community.name}"  To :"${user.name}"`);
 
     res.status(200).json({ message: 'Invitation sent successfully' });
   } catch (error) {
@@ -113,10 +100,8 @@ export const sendInvitation = async (req, res) => {
 };
 
 
-
-
-
   
+
 
 
 
@@ -129,48 +114,43 @@ export const acceptInvitation = async (req, res) => {
 
     // Check if the user has received an invitation
     const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+
+    // Ensure that user and user.invitations are defined
+    if (!user || !user.invitations || !Array.isArray(user.invitations)) {
+      return res.status(400).json({ message: 'Invalid user or invitations array' });
     }
 
-    if (!user.invitations || !Array.isArray(user.invitations)) {
-      return res.status(400).json({ message: 'Invalid invitations data' });
-    }
-
+    // Convert communityId to a string for accurate comparison
     const stringCommunityId = communityId.toString();
+
+    // Find the invitation in the user's invitations array
     const invitationIndex = user.invitations.findIndex(invitation => {
       return invitation.communityId && invitation.communityId.toString() === stringCommunityId;
     });
 
+    // If the invitation doesn't exist, return an error
     if (invitationIndex === -1) {
-      return res.status(400).json({ message: 'No invitation found for this community' });
+      return res.status(400).json({ message: 'No invitation received for this community' });
     }
 
+    // Add the user to the community members
     const community = await Community.findById(communityId);
-    if (!community) {
-      return res.status(404).json({ message: 'Community not found' });
-    }
-
-    // Add the user to the community members and save
     community.members.push(req.user.id);
+
+    // Add the community to the user's communities list
     user.communities.push(communityId);
 
     await community.save();
+
+    // Remove the invitation from the user's list
     user.invitations.splice(invitationIndex, 1);
     await user.save();
 
-    const communityInvitationIndex = community.invitations.findIndex(invitation => {
-      return invitation.senderId.toString() === user.id.toString() && invitation.communityId.toString() === communityId.toString();
-    });
-
-    if (communityInvitationIndex !== -1) {
-      community.invitations.splice(communityInvitationIndex, 1);
-      await community.save();
-    }
-
-    // Notify admins and send notifications
+    // Notify the admin that the user accepted the invitation
     const adminNotificationMessage = `${user.name} accepted the invitation to join the community "${community.name}"`;
     await createNotificationForOwner(req.user.id, community.admins, adminNotificationMessage);
+
+    // Send notifications to all community members about the new member
     await sendNotificationsToCommunityMembers(community.id, req.user.id);
     await addHistory(req.user.id, `accepted Invitation for Community: "${community.name}"`);
 
@@ -179,18 +159,14 @@ export const acceptInvitation = async (req, res) => {
     if (userSocketId) {
       io.sockets.sockets.get(userSocketId).join(communityId);
       console.log(`User with socket ID ${userSocketId} joined community room ${communityId}`);
-    } else {
-      console.log('User is not connected to the socket.');
     }
 
     res.status(200).json({ message: 'Invitation accepted successfully' });
   } catch (error) {
-    console.error('Error while accepting invitation:', error);
-    res.status(500).json({ message: 'Server Error', error: error.message });
+    console.error(error);
+    res.status(500).json({ message: 'Server Error' });
   }
 };
-
-
 
 
 
@@ -385,38 +361,29 @@ export const ignoreInvitationById = async (req, res) => {
 
     // تحقق من وجود المستخدم
     const user = await User.findById(req.user.id);
+
     if (!user) {
+      console.log("User not found");
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // البحث عن الدعوة في قائمة دعوات المستخدم
-    const invitationIndex = user.invitations.findIndex((invitation) => invitation._id.toString() === invitationId);
-    if (invitationIndex === -1) {
-      return res.status(400).json({ message: 'No invitation found for this ID' });
-    }
+    console.log("Invitation ID from request:", invitationId);
+    console.log("User Invitations:", user.invitations);
 
-    // الحصول على communityId قبل إزالة الدعوة
-    const communityId = user.invitations[invitationIndex].communityId;
-    if (!communityId) {
-      return res.status(400).json({ message: 'Community ID missing in the invitation' });
+    // البحث عن الدعوة باستخدام invitationId
+    const invitationIndex = user.invitations.findIndex((invitation) => {
+      console.log(`Checking invitation ID: ${invitation._id.toString()} === ${invitationId}`);
+      return invitation._id.toString() === invitationId;
+    });
+
+    if (invitationIndex === -1) {
+      console.log(`No invitation found for invitationId: ${invitationId}`);
+      return res.status(400).json({ message: 'No invitation found for this ID' });
     }
 
     // إزالة الدعوة من قائمة دعوات المستخدم
     user.invitations.splice(invitationIndex, 1);
     await user.save();
-
-    // البحث عن الكوميونتي باستخدام communityId
-    const community = await Community.findById(communityId);
-    if (community) {
-      // العثور على الدعوة في قائمة دعوات الكوميونتي
-      const communityInvitationIndex = community.invitations.findIndex(invitation => invitation._id.toString() === invitationId);
-      
-      if (communityInvitationIndex !== -1) {
-        // إزالة الدعوة من قائمة الدعوات الخاصة بالكوميونتي
-        community.invitations.splice(communityInvitationIndex, 1);
-        await community.save();
-      }
-    }
 
     res.status(200).json({ message: 'Invitation ignored successfully' });
   } catch (error) {

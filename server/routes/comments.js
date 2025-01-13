@@ -8,5 +8,6 @@ router.post("/addReply", verifyToken, addReply)
 router.get("/isCommentByUser/:commentId", verifyToken, isCommentByUser); 
 router.get("/:objectId",verifyToken, getCommentsByObjectId)
 router.get('/replies/:commentId',verifyToken, getReplies);
+router.delete("/:commentId", verifyToken, deleteComment);
 
 export default router;

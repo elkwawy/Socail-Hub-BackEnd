@@ -5,6 +5,7 @@ import Post from "../models/Post.js";
 import User from "../models/User.js";
 import FakeComment from '../models/FakeComment.js'; // Import the FakeComment model
 import { addHistory } from '../controllers/historyController.js'; // Import the function to add history entries
+import mongoose from "mongoose";
 
 import { createNotificationForOwner } from './notification.js'; // Assuming you have the notification functions in a separate file
 
@@ -268,6 +269,7 @@ export const getReplies = async (req, res, next) => {
 
     // Transform the user data
     const transformUser = (user) => ({
+      userId: user._id, // Include user ID
       name: user.name,
       profilePicture: user.profilePicture,
     });
@@ -275,6 +277,7 @@ export const getReplies = async (req, res, next) => {
     // Transform replies
     const transformReplies = (replies) =>
       replies.map((reply) => ({
+        userId: reply.userId?._id, // Include user ID for the reply
         category: reply.category || "General", // Default category if not provided
         desc: reply.desc, // Include the description/content of the reply
         objectId: reply._id, // Include the ID as objectId
@@ -282,6 +285,7 @@ export const getReplies = async (req, res, next) => {
         replyTo: reply.replyTo
           ? {
               name: reply.replyTo.userId?.name || null, // Include the name of the user being replied to
+              userId: reply.replyTo.userId?._id || null, // Include userId of the user being replied to
             }
           : null,
         replies: transformReplies(reply.replies || []),
@@ -310,40 +314,48 @@ export const getReplies = async (req, res, next) => {
 
 export const deleteComment = async (req, res, next) => {
   try {
-      const commentId = req.params.id;
-      const comment = await Comment.findById(commentId);
-      if (!comment) {
-          return next(createError(404, 'Comment not found'));
-      }
+    const commentId = req.params.commentId; // Ensure this matches your route parameter
+    if (!mongoose.Types.ObjectId.isValid(commentId)) {
+      return next(createError(400, "Invalid comment ID format"));
+    }
 
-      // Check if the user is authorized to delete the comment or if they are the owner of the associated video/post
-      const video = await Video.findById(comment.objectId);
-      const post = await Post.findById(comment.objectId);
+    const comment = await Comment.findById(commentId);
+    if (!comment) {
+      return next(createError(404, "Comment not found"));
+    }
 
-      const isOwnerOfObject = video ? String(video.userId) === String(req.user.id) : post ? String(post.userId) === String(req.user.id) : false;
+    // Check if the user is authorized to delete the comment
+    const video = comment.objectType === "video" ? await Video.findById(comment.objectId) : null;
+    const post = comment.objectType === "post" ? await Post.findById(comment.objectId) : null;
 
-      if (String(comment.userId) !== String(req.user.id) && !isOwnerOfObject) {
-          return next(createError(403, 'You can only delete your own comment or comments on your video/post.'));
-      }
+    const isOwnerOfObject = video
+      ? String(video.userId) === String(req.user.id)
+      : post
+      ? String(post.userId) === String(req.user.id)
+      : false;
 
-      // Delete the comment from the Comment database
-      await Comment.findByIdAndDelete(commentId);
+    if (String(comment.userId) !== String(req.user.id) && !isOwnerOfObject) {
+      return next(createError(403, "You can only delete your own comment or comments on your video/post."));
+    }
 
-      // Remove the comment reference from the associated video or post
-      if (video) {
-          video.comments = video.comments.filter(id => String(id) !== commentId);
-          await video.save();
-      } else if (post) {
-          post.comments = post.comments.filter(id => String(id) !== commentId);
-          await post.save();
-      }
+    // Delete the comment
+    await Comment.findByIdAndDelete(commentId);
 
-      // Add a history entry for the deletion
-      await addHistory(req.user.id, `You deleted a comment: "${comment.desc}"`);
+    // Update the related video or post
+    if (video) {
+      video.comments = video.comments.filter(id => String(id) !== commentId);
+      await video.save();
+    } else if (post) {
+      post.comments = post.comments.filter(id => String(id) !== commentId);
+      await post.save();
+    }
 
-      res.status(200).json({ message: 'Comment deleted successfully' });
+    // Add a history entry
+    await addHistory(req.user.id, `You deleted a comment: "${comment.desc}"`);
+
+    res.status(200).json({ message: "Comment deleted successfully" });
   } catch (err) {
-      next(err);
+    next(err);
   }
 };
 
