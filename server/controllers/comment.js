@@ -314,34 +314,38 @@ export const getReplies = async (req, res, next) => {
 
 export const deleteComment = async (req, res, next) => {
   try {
-    const commentId = req.params.commentId; // Ensure this matches your route parameter
+    const commentId = req.params.commentId; // Match route parameter
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
       return next(createError(400, "Invalid comment ID format"));
     }
 
+    // Find the comment by ID
     const comment = await Comment.findById(commentId);
     if (!comment) {
       return next(createError(404, "Comment not found"));
     }
 
-    // Check if the user is authorized to delete the comment
+    // Determine the related object (video or post) based on objectType
     const video = comment.objectType === "video" ? await Video.findById(comment.objectId) : null;
     const post = comment.objectType === "post" ? await Post.findById(comment.objectId) : null;
 
+    // Check if the user is authorized to delete the comment
     const isOwnerOfObject = video
-      ? String(video.userId) === String(req.user.id)
+      ? String(video.userId) === String(req.user.id) // User owns the video
       : post
-      ? String(post.userId) === String(req.user.id)
+      ? String(post.userId) === String(req.user.id) // User owns the post
       : false;
 
-    if (String(comment.userId) !== String(req.user.id) && !isOwnerOfObject) {
+    const isAuthorOfComment = String(comment.userId) === String(req.user.id); // User authored the comment
+
+    if (!isOwnerOfObject && !isAuthorOfComment) {
       return next(createError(403, "You can only delete your own comment or comments on your video/post."));
     }
 
     // Delete the comment
     await Comment.findByIdAndDelete(commentId);
 
-    // Update the related video or post
+    // Remove the comment ID from the related video or post's comment list
     if (video) {
       video.comments = video.comments.filter(id => String(id) !== commentId);
       await video.save();
@@ -350,7 +354,7 @@ export const deleteComment = async (req, res, next) => {
       await post.save();
     }
 
-    // Add a history entry
+    // Add a history entry for the user
     await addHistory(req.user.id, `You deleted a comment: "${comment.desc}"`);
 
     res.status(200).json({ message: "Comment deleted successfully" });
@@ -358,7 +362,6 @@ export const deleteComment = async (req, res, next) => {
     next(err);
   }
 };
-
 
 //for Appeares Comments Under video
  
