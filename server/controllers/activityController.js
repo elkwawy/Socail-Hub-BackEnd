@@ -1,17 +1,13 @@
-// activityController.js
-
 // Import necessary models
 import FakeUser from '../models/FakeUser.js';
 import Post from '../models/Post.js';
 import Video from '../models/Video.js';
-import FakeComment from '../models/FakeComment.js'; // Import the FakeComment model
+import FakeComment from '../models/FakeComment.js';
 import Comment from '../models/Comment.js';
 import Balance from '../models/Balance.js';
-import { addHistory } from '../controllers/historyController.js'; // Import the function to add history entries
+import { addHistory } from '../controllers/historyController.js';
 import { decrypt } from './bycripting_algorithem.js';
-import { createNotificationsForSubscribersOrFollowers } from './notification.js'; // مثال
-
-
+import { createNotificationsForSubscribersOrFollowers } from './notification.js';
 
 // Function to randomly select users from the FakeUser model
 const getRandomUsers = async (count) => {
@@ -19,70 +15,77 @@ const getRandomUsers = async (count) => {
   return users.map(user => user._id);
 };
 
+// Function to randomly select fake comments from the FakeComment model
+const getFakeComments = async (count) => {
+  const fakeComments = await FakeComment.aggregate([{ $sample: { size: count } }]);
+  return fakeComments;
+};
 
-
-// Function to increment likes for a post
-
-
-
-
-
+// Function to increment likes for a post or video
+// Function to increment likes for a post or video
+// Function to increment likes for a post or video
 export const incrementLikes = async (req, res) => {
   try {
-    const { postKey, amount } = req.body;
-    const userId = req.user.id;
+    const { objectKey, amount } = req.body;
+    const userId = req.user?.id;
 
-    // فصل النص المشفر واسم التطبيق
-    const [encryptedData, iv, appName] = postKey.split('-');
-    console.log('Encrypted Data:', encryptedData);
-    console.log('IV:', iv);
-    console.log('App Name:', appName);
-
-    if (!encryptedData || !iv || appName !== 'Social_Hub') {
-      return res.status(400).json({ success: false, message: 'Invalid postKey format' });
+    if (!objectKey || !amount || !userId) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
-    // فك تشفير postKey للحصول على uniqueIdentifier
+    // Extract encrypted data and application name
+    const keyParts = objectKey.split('-');
+    if (keyParts.length !== 3) {
+      return res.status(400).json({ success: false, message: 'Invalid objectKey format' });
+    }
+
+    const [encryptedData, iv, appName] = keyParts;
+    if (appName !== 'Social_Hub') {
+      return res.status(400).json({ success: false, message: 'Invalid application name in objectKey' });
+    }
+
+    // Decrypt objectKey to get uniqueIdentifier
     const uniqueIdentifier = decrypt(`${encryptedData}-${iv}`);
-    console.log('Decrypted uniqueIdentifier:', uniqueIdentifier);
 
-    // البحث عن المنشور باستخدام uniqueIdentifier
-    const matchedPost = await Post.findOne({ postKey });
-    if (!matchedPost) {
-      return res.status(404).json({ success: false, message: 'Post not found for the provided postKey' });
+    // Find the object (post or video) using the objectKey
+    const post = await Post.findOne({ postKey: objectKey });
+    const video = await Video.findOne({ videoKey: objectKey });
+    const object = post || video;
+
+    if (!object) {
+      return res.status(404).json({ success: false, message: 'Object not found' });
     }
 
-    // التحقق من الرصيد
-    const userBalance = await Balance.findOne({ userId });
-    const costPerLike = 10; // تكلفة كل إعجاب
+    // Check user balance
+    const userBalance = await Balance.findOne({ user: userId });
+
+    if (!userBalance) {
+      return res.status(404).json({ success: false, message: 'User balance not found' });
+    }
+
+    const costPerLike = 10; // Cost per like
     const totalCost = amount * costPerLike;
 
-    if (!userBalance || userBalance.currentCoins < totalCost) {
-      return res.status(400).json({ success: false, message: 'Insufficient balance to buy likes' });
+    if (userBalance.currentCoins < totalCost) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance to buy ${amount} likes. You need ${totalCost} coins.`,
+      });
     }
 
-    // خصم الرصيد
+    // Deduct coins
     userBalance.currentCoins -= totalCost;
     await userBalance.save();
 
-    // الحصول على مستخدمين عشوائيين
+    // Get random users to add likes
     const randomUsers = await getRandomUsers(amount);
-
-    // إضافة الإعجابات
-    matchedPost.likes.push(...randomUsers);
-    await matchedPost.save();
-
-    // إنشاء الإشعارات
-    const message = `Post liked by random users. Added ${amount} likes.`;
-    await createNotificationsForSubscribersOrFollowers(matchedPost.userId, message);
-
-    // تحديث سجل النشاط
-    await addHistory(userId, `You added ${amount} likes to post with ID: ${matchedPost._id}`);
+    object.likes.push(...randomUsers);
+    await object.save();
 
     res.status(200).json({
       success: true,
-      message: 'Likes incremented successfully',
-      post: matchedPost,
+      message: 'Likes incremented successfully.',
+      object,
       remainingCoins: userBalance.currentCoins,
     });
   } catch (error) {
@@ -93,47 +96,50 @@ export const incrementLikes = async (req, res) => {
 
 
 
-
-
-
-   
-     
-
+// Function to increment views for a video
 export const incrementViews = async (req, res) => {
   try {
     const { videoKey, amount } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
 
-    // فصل النص المشفر واسم التطبيق
-    const [encryptedData, iv, appName] = videoKey.split('-');
-    if (!encryptedData || !iv || appName !== 'Social_Hub') {
+    if (!videoKey || !amount || !userId) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    // Extract encrypted data and application name
+    const keyParts = videoKey.split('-');
+    if (keyParts.length !== 3) {
       return res.status(400).json({ success: false, message: 'Invalid videoKey format' });
     }
 
-    // فك تشفير videoKey للحصول على uniqueIdentifier
-    const uniqueIdentifier = decrypt(`${encryptedData}-${iv}`);
-    console.log('Decrypted uniqueIdentifier:', uniqueIdentifier);
+    const [encryptedData, iv, appName] = keyParts;
+    if (appName !== 'Social_Hub') {
+      return res.status(400).json({ success: false, message: 'Invalid application name in videoKey' });
+    }
 
-    // البحث عن الفيديو باستخدام videoKey
+    // Decrypt videoKey to get uniqueIdentifier
+    const uniqueIdentifier = decrypt(`${encryptedData}-${iv}`);
+
+    // Find the video using videoKey
     const video = await Video.findOne({ videoKey });
     if (!video) {
       return res.status(404).json({ success: false, message: 'Video not found' });
     }
 
-    // التحقق من الرصيد
+    // Check user balance
     const userBalance = await Balance.findOne({ user: userId });
-    const costPerView = 5; // تكلفة كل مشاهدة
+    const costPerView = 5; // Cost per view
     const totalCost = amount * costPerView;
 
     if (!userBalance || userBalance.currentCoins < totalCost) {
       return res.status(400).json({ success: false, message: 'Insufficient balance to buy views' });
     }
 
-    // خصم الرصيد
+    // Deduct coins
     userBalance.currentCoins -= totalCost;
     await userBalance.save();
 
-    // زيادة عدد المشاهدات
+    // Increment views
     video.views += amount;
     await video.save();
 
@@ -149,54 +155,31 @@ export const incrementViews = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-const getFakeComments = async (count) => {
-  try {
-    const fakeComments = await FakeComment.aggregate([{ $sample: { size: count } }]);
-    return fakeComments;
-  } catch (error) {
-    throw new Error('Error fetching fake comments');
-  }
-};
-
-
-
-
-
-
-
-
+// Function to increment comments for a post or video
 export const incrementComments = async (req, res) => {
   try {
     const { objectKey, amount } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
 
-    // تحقق من وجود وصيغة objectKey
-    if (!objectKey || !objectKey.includes('-')) {
+    if (!objectKey || !amount || !userId) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    // Extract encrypted data and application name
+    const keyParts = objectKey.split('-');
+    if (keyParts.length !== 3) {
       return res.status(400).json({ success: false, message: 'Invalid objectKey format' });
     }
 
-    // فصل النص المشفر واسم التطبيق
-    const [encryptedData, iv, appName] = objectKey.split('-');
-    if (!encryptedData || !iv || appName !== 'Social_Hub') {
-      return res.status(400).json({ success: false, message: 'Invalid objectKey format' });
+    const [encryptedData, iv, appName] = keyParts;
+    if (appName !== 'Social_Hub') {
+      return res.status(400).json({ success: false, message: 'Invalid application name in objectKey' });
     }
 
-    // فك تشفير objectKey للحصول على uniqueIdentifier
+    // Decrypt objectKey to get uniqueIdentifier
     const uniqueIdentifier = decrypt(`${encryptedData}-${iv}`);
-    console.log('Decrypted uniqueIdentifier:', uniqueIdentifier);
 
-    // البحث عن المنشور أو الفيديو باستخدام objectKey
+    // Find the object (post or video) using the objectKey
     const post = await Post.findOne({ postKey: objectKey });
     const video = await Video.findOne({ videoKey: objectKey });
     const object = post || video;
@@ -205,25 +188,20 @@ export const incrementComments = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Object not found' });
     }
 
-    // التأكد من أن حقل comments موجود
-    if (!object.comments) {
-      object.comments = [];
-    }
-
-    // التحقق من الرصيد
+    // Check user balance
     const userBalance = await Balance.findOne({ user: userId });
-    const costPerComment = 8; // تكلفة كل تعليق
+    const costPerComment = 8; // Cost per comment
     const totalCost = amount * costPerComment;
 
     if (!userBalance || userBalance.currentCoins < totalCost) {
       return res.status(400).json({ success: false, message: 'Insufficient balance to buy comments' });
     }
 
-    // خصم الرصيد
+    // Deduct coins
     userBalance.currentCoins -= totalCost;
     await userBalance.save();
 
-    // إنشاء التعليقات المزيفة
+    // Get fake comments
     const fakeComments = await getFakeComments(amount);
     const newComments = [];
 
@@ -234,7 +212,7 @@ export const incrementComments = async (req, res) => {
         desc: fakeComment.desc,
       });
       await newComment.save();
-      object.comments.push(newComment._id); // لن تحدث مشكلة هنا بعد التحقق
+      object.comments.push(newComment._id);
       newComments.push(newComment);
     }
 
@@ -251,32 +229,4 @@ export const incrementComments = async (req, res) => {
     console.error('Error incrementing comments:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
-};
-
-
-
-
-
-
-
-
-
-
-// Function to deduct coins from user's balance
-const deductCoins = async (userId, amount) => {
-    try {
-        // Find the user's balance
-        const userBalance = await Balance.findOne({ user: userId });
-
-        // If balance doesn't exist, throw an error
-        if (!userBalance) {
-            throw new Error('User balance not found');
-        }
-
-        // Deduct coins
-        userBalance.currentCoins -= amount;
-        await userBalance.save();
-    } catch (error) {
-        throw error;
-    }
 };
