@@ -309,6 +309,7 @@ export const getReplies = async (req, res, next) => {
 
 
 
+    // Fetch comments for the specified objectId with category "root"
 
 
 
@@ -350,8 +351,9 @@ export const deleteComment = async (req, res, next) => {
       return next(createError(404, "No associated video or post found for this comment."));
     }
 
-    // Check if the user trying to delete the comment is the owner of the video or post
-    if (String(object.userId) !== String(userId)) {
+    // Check if the user trying to delete the comment is either the owner of the video/post
+    // or the owner of the comment itself
+    if (String(object.userId) !== String(userId) && String(comment.userId) !== String(userId)) {
       return next(createError(403, "You do not have permission to delete this comment."));
     }
 
